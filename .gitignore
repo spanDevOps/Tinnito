@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# Application specific
+*.mp3
+mpthrees/
+.vscode/
+token.pickle
+cookies.txt
+song_path.txt
+credentials.json
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Docker
+.docker/
+docker-compose.override.yml
+.dockerenv

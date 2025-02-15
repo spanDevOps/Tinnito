@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: tinnito-web
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn url_server:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: tinnito-redis
+          property: connectionString
+
+  - type: worker
+    name: tinnito-worker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m rq worker -u $REDIS_URL default
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: tinnito-redis
+          property: connectionString
+
+  - type: redis
+    name: tinnito-redis
+    ipAllowList: []
+    plan: free

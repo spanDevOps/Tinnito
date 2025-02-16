@@ -4,6 +4,8 @@ from rq import Queue
 from tasks import process_youtube_url
 import os
 import json
+import boto3
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-change-this')
@@ -209,6 +211,55 @@ def get_status(job_id):
         "message": getattr(job, 'meta', {}).get('message', '')
     }
     return jsonify(status)
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for deployment verification"""
+    health_status = {
+        'status': 'healthy',
+        'timestamp': datetime.utcnow().isoformat(),
+        'version': os.getenv('GIT_COMMIT', 'unknown'),
+        'checks': {
+            'redis': {'status': 'unknown'},
+            'r2_storage': {'status': 'unknown'}
+        }
+    }
+
+    # Check Redis connection
+    try:
+        redis_conn.ping()
+        health_status['checks']['redis'] = {
+            'status': 'healthy',
+            'message': 'Connected successfully'
+        }
+    except Exception as e:
+        health_status['checks']['redis'] = {
+            'status': 'unhealthy',
+            'error': str(e)
+        }
+        health_status['status'] = 'unhealthy'
+
+    # Check R2 connection
+    try:
+        s3_client = boto3.client(
+            's3',
+            endpoint_url=os.getenv('R2_ENDPOINT_URL'),
+            aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
+            aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY')
+        )
+        s3_client.list_buckets()
+        health_status['checks']['r2_storage'] = {
+            'status': 'healthy',
+            'message': 'Connected successfully'
+        }
+    except Exception as e:
+        health_status['checks']['r2_storage'] = {
+            'status': 'unhealthy',
+            'error': str(e)
+        }
+        health_status['status'] = 'unhealthy'
+
+    return jsonify(health_status), 200 if health_status['status'] == 'healthy' else 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

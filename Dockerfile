@@ -19,6 +19,9 @@ RUN mkdir -p mpthrees logs && \
     chown -R nobody:nogroup mpthrees logs && \
     chmod 755 mpthrees logs
 
+# Copy gunicorn config
+COPY gunicorn.conf.py .
+
 # Copy application code
 COPY . .
 
@@ -28,5 +31,9 @@ USER nobody
 # Expose port
 EXPOSE 5000
 
-# Start the application
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "url_server:app"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Start the application with production settings
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "url_server:app"]

@@ -6,6 +6,21 @@ import os
 import json
 import boto3
 from datetime import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('tinnito')
+logger.setLevel(logging.INFO)
+
+# Add file handler with rotation
+os.makedirs('logs', exist_ok=True)
+file_handler = RotatingFileHandler('logs/tinnito.log', maxBytes=1024*1024, backupCount=5)
+file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s [%(levelname)s] %(message)s - {"component": "%(name)s", "path": "%(pathname)s:%(lineno)d"}'
+))
+logger.addHandler(file_handler)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-change-this')
@@ -214,52 +229,71 @@ def get_status(job_id):
 
 @app.route('/health')
 def health_check():
-    """Health check endpoint for deployment verification"""
-    health_status = {
+    """Health check endpoint that verifies Redis and R2 connectivity."""
+    request_id = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    logger.info(f'Health check initiated - RequestID: {request_id}')
+    
+    status = {
         'status': 'healthy',
-        'timestamp': datetime.utcnow().isoformat(),
-        'version': os.getenv('GIT_COMMIT', 'unknown'),
+        'timestamp': datetime.now().isoformat(),
+        'version': 'unknown',
+        'request_id': request_id,
         'checks': {
-            'redis': {'status': 'unknown'},
-            'r2_storage': {'status': 'unknown'}
+            'redis': {
+                'status': 'unhealthy'
+            },
+            'r2_storage': {
+                'status': 'unhealthy'
+            }
         }
     }
 
-    # Check Redis connection
+    # Check Redis
     try:
+        logger.info(f'Testing Redis connection - RequestID: {request_id}')
         redis_conn.ping()
-        health_status['checks']['redis'] = {
+        status['checks']['redis'] = {
             'status': 'healthy',
             'message': 'Connected successfully'
         }
+        logger.info(f'Redis check passed - RequestID: {request_id}')
     except Exception as e:
-        health_status['checks']['redis'] = {
+        error_msg = str(e)
+        status['checks']['redis'] = {
             'status': 'unhealthy',
-            'error': str(e)
+            'error': error_msg
         }
-        health_status['status'] = 'unhealthy'
+        status['status'] = 'unhealthy'
+        logger.error(f'Redis check failed - RequestID: {request_id}, Error: {error_msg}')
 
-    # Check R2 connection
+    # Check R2
     try:
+        logger.info(f'Testing R2 storage connection - RequestID: {request_id}')
         s3_client = boto3.client(
             's3',
             endpoint_url=os.getenv('R2_ENDPOINT_URL'),
             aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY')
         )
-        s3_client.list_buckets()
-        health_status['checks']['r2_storage'] = {
+        bucket = os.getenv('R2_BUCKET')
+        s3_client.head_bucket(Bucket=bucket)
+        status['checks']['r2_storage'] = {
             'status': 'healthy',
-            'message': 'Connected successfully'
+            'message': f'Connected successfully to bucket {bucket}'
         }
+        logger.info(f'R2 storage check passed - RequestID: {request_id}, Bucket: {bucket}')
     except Exception as e:
-        health_status['checks']['r2_storage'] = {
+        error_msg = str(e)
+        status['checks']['r2_storage'] = {
             'status': 'unhealthy',
-            'error': str(e)
+            'error': error_msg
         }
-        health_status['status'] = 'unhealthy'
+        status['status'] = 'unhealthy'
+        logger.error(f'R2 storage check failed - RequestID: {request_id}, Error: {error_msg}')
 
-    return jsonify(health_status), 200 if health_status['status'] == 'healthy' else 500
+    response_code = 200 if status['status'] == 'healthy' else 500
+    logger.info(f'Health check completed - RequestID: {request_id}, Status: {status["status"]}, Code: {response_code}')
+    return jsonify(status), response_code
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
